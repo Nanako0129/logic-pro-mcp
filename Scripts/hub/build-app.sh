@@ -9,7 +9,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 CONF="${1:-release}"
 cd "$ROOT"
-swift build -c "$CONF" --product LogicProMCPHub --product LogicProMCP
+# One product per call: SwiftPM honors only the last --product (2026-11-03: the hub was silently left unbuilt).
+for p in LogicProMCPHub LogicProMCP; do swift build -c "$CONF" --product "$p"; done
 BIN="$(swift build -c "$CONF" --show-bin-path)"
 
 APP="$ROOT/.build/hub-app/LogicProMCPHub.app"

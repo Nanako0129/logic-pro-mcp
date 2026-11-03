@@ -17,6 +17,12 @@ run() { if [ "${DRY_RUN:-0}" = 1 ]; then echo "+ $*"; else "$@"; fi; }
 [ -d "$SRC" ] || { echo "no app at $SRC (run Scripts/hub/build-app.sh, then sign-app.sh)" >&2; exit 1; }
 PLIST="$(sed -e "s|@APP@|$APP|g" -e "s|@PORT@|$PORT|g" -e "s|@LOG@|$LOG|g" -e "s|@LOGDIR@|$(dirname "$LOG")|g" \
   "$ROOT/Scripts/hub/$LABEL.plist.template")"
+# Optional: which Logic variant the child drives (e.g. com.apple.mobilelogic for Logic Pro Creator Studio); the hub passes its
+# environment to the child, so this lands in the server as it did in the old per-session stdio config.
+if [ -n "${LOGIC_PRO_BUNDLE_ID:-}" ]; then
+  case $LOGIC_PRO_BUNDLE_ID in *[!A-Za-z0-9.-]*) echo "LOGIC_PRO_BUNDLE_ID must be a bundle ID" >&2; exit 2 ;; esac
+  PLIST="$(printf '%s\n' "$PLIST" | sed "s|<key>LOGIC_PRO_MCP_HUB_PORT</key>|<key>LOGIC_PRO_BUNDLE_ID</key><string>$LOGIC_PRO_BUNDLE_ID</string><key>LOGIC_PRO_MCP_HUB_PORT</key>|")"
+fi
 
 run launchctl bootout "gui/$UID/$LABEL" 2>/dev/null || true       # replace a running agent
 run mkdir -p "$DIR" "$(dirname "$AGENT")" "$(dirname "$LOG")"
