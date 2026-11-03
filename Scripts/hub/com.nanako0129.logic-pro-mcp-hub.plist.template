@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>com.nanako0129.logic-pro-mcp-hub</string>
+    <key>ProgramArguments</key>
+    <array><string>@APP@/Contents/MacOS/LogicProMCPHub</string></array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>LOGIC_PRO_MCP_HUB_PORT</key><string>@PORT@</string>
+        <key>LOGIC_PRO_MCP_HUB_LOG</key><string>@LOG@</string>
+    </dict>
+    <key>RunAtLoad</key><true/>
+    <key>KeepAlive</key><true/>
+    <!-- Accessibility and Apple Events need the user's GUI session. -->
+    <key>LimitLoadToSessionType</key><string>Aqua</string>
+    <key>ProcessType</key><string>Interactive</string>
+    <key>StandardOutPath</key><string>@LOGDIR@/launchd.out.log</string>
+    <key>StandardErrorPath</key><string>@LOGDIR@/launchd.err.log</string>
+</dict>
+</plist>

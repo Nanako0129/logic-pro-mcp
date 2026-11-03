@@ -7,6 +7,7 @@ let package = Package(
     products: [
         .executable(name: "LogicProMCP", targets: ["LogicProMCPCLI"]),
         .executable(name: "trusted-verifier", targets: ["TrustedVerifier"]),
+        .executable(name: "LogicProMCPHub", targets: ["LogicProMCPHub"]),
         .library(name: "LogicProMCPKit", targets: ["LogicProMCP"]),
     ],
     dependencies: [
@@ -67,6 +68,24 @@ let package = Package(
             name: "TrustedVerifier",
             dependencies: ["LogicProMCP"],
             path: "Sources/TrustedVerifier"
+        ),
+        // Shared-hub fork addition: Foundation + Network only, no dependency on the server target.
+        .target(
+            name: "LogicProMCPHubCore",
+            path: "Sources/LogicProMCPHubCore"
+        ),
+        .executableTarget(
+            name: "LogicProMCPHub",
+            dependencies: ["LogicProMCPHubCore"],
+            path: "Sources/LogicProMCPHub"
+        ),
+        .testTarget(
+            name: "LogicProMCPHubTests",
+            dependencies: [
+                "LogicProMCPHubCore",
+                .product(name: "Testing", package: "swift-testing"),
+            ],
+            path: "Tests/LogicProMCPHubTests"
         ),
         .testTarget(
             name: "LogicProMCPTests",

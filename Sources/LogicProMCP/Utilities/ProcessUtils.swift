@@ -345,6 +345,17 @@ enum ProcessUtils {
         }
     }
 
+    /// NSWorkspace-only "is Logic running": no `ps`, no `osascript`.
+    static func logicProAppIsRunning() -> Bool {
+        logicProApp() != nil
+    }
+
+    /// `hasVisibleWindow` for the background poll loop: when NSWorkspace says Logic is not
+    /// running the answer is false without the `ps` / System Events fallback chain.
+    static func hasVisibleWindowForBackgroundPoll() -> Bool {
+        logicProAppIsRunning() && hasVisibleWindow()
+    }
+
     /// Bring Logic Pro to front (used sparingly — most operations don't need focus).
     static func activateLogicPro() -> Bool {
         activateLogicPro(runtime: .production)

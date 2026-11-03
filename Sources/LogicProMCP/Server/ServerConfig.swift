@@ -84,6 +84,10 @@ struct ServerConfig: Sendable {
     // drift fixed in v3.1.2 P2.)
     static let statePollingIntervalNs: UInt64 = 3_000_000_000 // 3 seconds
 
+    /// While Logic is not running the poller idles; this is the slow re-check in case a
+    /// launch/terminate notification is missed.
+    static let logicIdleRecheckNs: UInt64 = 30_000_000_000 // 30 seconds
+
     /// Channels that may fail to initialize without preventing the server from
     /// starting in degraded mode. Their unavailability must still surface in
     /// health/resource reporting.

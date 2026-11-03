@@ -229,6 +229,74 @@ bash <(curl -fsSL https://raw.githubusercontent.com/MongLong0214/logic-pro-mcp/v
 
 See [SECURITY.md §Installer trust model](SECURITY.md#installer-trust-model) for the trust tiers and threat model.
 
+## Shared hub (fork addition)
+
+This fork adds `LogicProMCPHub`, an optional background app that runs **one** LogicProMCP for every Claude Code session. Without it, each session spawns its own stdio server: nine sessions meant nine StatePollers and nine permission contexts.
+
+What changed relative to upstream:
+
+| Change | Where |
+| --- | --- |
+| The background poller no longer runs an AX cycle, `ps` or `osascript` while Logic Pro is not running. It checks NSWorkspace, finishes the cycles that record "document closed", then sleeps until Logic launches or quits (NSWorkspace notifications, 30 s fallback re-check). State refreshes that tool calls ask for (`refreshNow`) also take the NSWorkspace gate for the window check; the other process lookups tool calls make keep the full chain (`ps`, System Events). | `State/StatePoller.swift`, `Utilities/LogicLifecycleWatcher.swift`, `Utilities/ProcessUtils.swift` |
+| `LogicProMCPHub`: MCP Streamable HTTP on `127.0.0.1` in front of a single stdio child. | `Sources/LogicProMCPHubCore`, `Sources/LogicProMCPHub` |
+| Packaging: `.app` build, signing, launchd agent, install/uninstall. | `Scripts/hub/` |
+
+How the hub behaves:
+
+- Listens on `127.0.0.1` only, path `/mcp`. Requests with an `Origin` header that is not localhost / 127.0.0.1 get 403.
+- Starts the child lazily on the first request, initializes it once, and answers every client `initialize` from that cached result. The child is stopped after `LOGIC_PRO_MCP_HUB_IDLE_SECONDS` with no requests and nothing in flight, and respawned (with subscriptions restored) on the next request. If the child dies, in-flight requests get a JSON-RPC error and the next request respawns it.
+- Rewrites JSON-RPC ids, `notifications/cancelled` request ids and progress tokens so sessions cannot collide. `resources/subscribe` is refcounted per URI: the child sees the first subscribe and the last unsubscribe.
+- `notifications/resources/updated` reaches only sessions subscribed to that URI that have an open GET stream; other notifications go to every open stream. Stream resumption (`Last-Event-ID`) is not implemented.
+- JSON-RPC batches are rejected (400); the server never sends requests to clients.
+
+Configuration (environment):
+
+| Variable | Default |
+| --- | --- |
+| `LOGIC_PRO_MCP_HUB_PORT` | `47731` |
+| `LOGIC_PRO_MCP_HUB_IDLE_SECONDS` | `600` |
+| `LOGIC_PRO_MCP_HUB_LOG` | `~/Library/Logs/LogicProMCPHub/hub.log` (hub log and child stderr) |
+| `LOGIC_PRO_MCP_HUB_CHILD` | `LogicProMCP` next to the hub executable |
+
+Hub limits (known, not handled yet):
+
+| Limit | Effect |
+| --- | --- |
+| No authentication on the loopback port | Any local process can connect and use the hub's Accessibility and Automation grants. Fine on a single-user Mac. |
+| Idle stop ignores open subscriptions | After the idle timeout the child stops and `resources/updated` notifications pause until the next request restarts it. Claude Code does not subscribe. |
+| Sessions expire only on DELETE | A client that exits without DELETE leaves its session (and subscriptions) until the hub restarts. |
+| Two sessions subscribing to one URI at the same moment | If the first subscribe fails at the child, the second session believes it is subscribed. |
+
+The child inherits the hub's environment (`LOGIC_PRO_MCP_MANIFEST_PATH`, `LOGIC_PRO_BUNDLE_ID`, ...). Inside the `.app` the hub points `LOGIC_PRO_MCP_MANIFEST_PATH` at the bundled `manifest.json` unless you set it.
+
+### Install
+
+```bash
+Scripts/hub/build-app.sh                       # .build/hub-app/LogicProMCPHub.app, ad-hoc signed
+HUB_SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" \
+  Scripts/hub/sign-app.sh .build/hub-app/LogicProMCPHub.app   # hardened runtime + apple-events entitlement
+Scripts/hub/install.sh                         # copies to ~/Applications, bootstraps the launchd agent
+claude mcp add --transport http logic-pro http://127.0.0.1:47731/mcp -s user
+```
+
+`DRY_RUN=1 Scripts/hub/install.sh` prints what it would do. `Scripts/hub/uninstall.sh` removes the agent and the app. Remove any old stdio registration first (`claude mcp remove logic-pro -s user`).
+
+### One-time permissions
+
+The hub, not your terminal, is now the process macOS holds responsible. Grant it once:
+
+1. System Settings > Privacy & Security > **Accessibility**: add and enable `LogicProMCPHub.app`.
+2. The first AppleScript call shows an **Automation** prompt (Logic Pro, System Events): allow it. Or enable it under Privacy & Security > Automation.
+
+Re-signing with a different identity changes the app's code requirement, so macOS may ask again.
+
+### Hub tests
+
+```bash
+swift test --filter LogicProMCPHubTests        # pure logic: ids, progress/cancel, subscriptions, versions, Origin
+Scripts/hub/e2e.sh                             # real child + fake child, driven with curl (never calls a Logic-driving tool)
+```
+
 ## Permissions
 
 Open **System Settings -> Privacy & Security**:

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key><string>com.nanako0129.logic-pro-mcp-hub</string>
+    <key>CFBundleName</key><string>LogicProMCPHub</string>
+    <key>CFBundleDisplayName</key><string>LogicProMCPHub</string>
+    <key>CFBundleExecutable</key><string>LogicProMCPHub</string>
+    <key>CFBundlePackageType</key><string>APPL</string>
+    <key>CFBundleShortVersionString</key><string>@VERSION@</string>
+    <key>CFBundleVersion</key><string>@VERSION@</string>
+    <key>LSMinimumSystemVersion</key><string>14.0</string>
+    <key>LSUIElement</key><true/>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>LogicProMCPHub runs the Logic Pro MCP server for all your Claude sessions and sends Apple Events to Logic Pro and System Events on their behalf.</string>
+</dict>
+</plist>

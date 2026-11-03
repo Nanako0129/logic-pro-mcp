@@ -55,6 +55,15 @@ actor StatePoller {
         /// Defaults to "no mutation in flight", which is the pre-existing behaviour.
         var mutationInFlight: @Sendable () -> Bool = { false }
 
+        /// Cheap "is any Logic Pro variant running" (NSWorkspace; no `ps`, no `osascript`). While it
+        /// answers false and the cache already reports the document closed, the background loop
+        /// idles instead of cycling. Defaults to true so a test runtime keeps the old behaviour.
+        var logicRunning: @Sendable () -> Bool = { true }
+
+        /// How the idle loop waits: returns on a Logic launch/terminate or after the timeout.
+        /// nil falls back to `sleep`.
+        var idleWait: (@Sendable (UInt64) async throws -> Void)? = nil
+
         /// #1079 — what Logic's keyboard focus is right now, read through the same rule that keeps
         /// a synthetic key out of a text field (`AccessibilityChannel.readLogicKeyboardFocus`).
         /// The background loop yields its tick while this answers `.textEditing`; see
@@ -96,13 +105,26 @@ actor StatePoller {
         /// resource, the poller is allowed to persist it in the cache.
         let projectFileReader: LogicProjectFileReader.Runtime
 
-        static let production = Runtime(
-            hasVisibleWindow: { ProcessUtils.hasVisibleWindow() },
-            dialogPresent: { AXLogicProElements.dialogPresent() },
-            blockingDialogInfo: { AXLogicProElements.blockingDialogInfo() },
-            projectFileReader: .production,
-            keyboardFocus: { AccessibilityChannel.readLogicKeyboardFocus(runtime: .production) }
-        )
+        static let production: Runtime = {
+            var runtime = Runtime(
+                // Background path: never falls back to `ps` / System Events when NSWorkspace says
+                // Logic is not running. Foreground tool calls keep the full chain.
+                hasVisibleWindow: { ProcessUtils.hasVisibleWindowForBackgroundPoll() },
+                dialogPresent: { AXLogicProElements.dialogPresent() },
+                blockingDialogInfo: { AXLogicProElements.blockingDialogInfo() },
+                projectFileReader: .production,
+                // Same rule: no Logic, no focus to read, and reading it would walk the PID fallback
+                // chain (`ps`, System Events). `.unreadable` is what the read answers without Logic.
+                keyboardFocus: {
+                    ProcessUtils.logicProAppIsRunning()
+                        ? AccessibilityChannel.readLogicKeyboardFocus(runtime: .production)
+                        : .unreadable(.appRoot)
+                }
+            )
+            runtime.logicRunning = { ProcessUtils.logicProAppIsRunning() }
+            runtime.idleWait = { await LogicLifecycleWatcher.shared.wait(timeoutNs: $0) }
+            return runtime
+        }()
 
         /// Test-friendly runtime for lifecycle-only coverage. Short-circuits
         /// the poll cycle by reporting no visible window — the real
@@ -487,8 +509,24 @@ actor StatePoller {
             // Read last: it is itself an AX read, and while a mutation holds the surface even that
             // is one too many. Synchronous, so the invariant above — no suspension between this
             // check and `runCoalescedCycle`'s — still holds.
+            //
+            // Logic is not running: a cycle can only find no window. Let it run until the cache
+            // has recorded the document closed (`failureThreshold` misses; with the cheap
+            // background `hasVisibleWindow` that costs no subprocess), then idle until Logic
+            // launches or terminates. The focus read is skipped too: it cannot read without Logic.
+            let logicUp = runtime.logicRunning()
+            if !logicUp, consecutiveWindowMisses >= Self.failureThreshold {
+                if !pollerIdle { pollerIdle = true; Log.info("Logic Pro not running: poller idle", subsystem: "poller") }
+                do {
+                    try await (runtime.idleWait ?? runtime.sleep)(ServerConfig.logicIdleRecheckNs)
+                } catch {
+                    break
+                }
+                continue
+            }
+            if pollerIdle { pollerIdle = false; Log.info("Logic Pro running: poller resumed", subsystem: "poller") }
             if !cycleInProgress, !runtime.mutationInFlight(),
-               !Self.backgroundTickYields(to: runtime.keyboardFocus()) {
+               !logicUp || !Self.backgroundTickYields(to: runtime.keyboardFocus()) {
                 _ = await runCoalescedCycle(yieldingToTextEditing: true)
             }
 
@@ -820,6 +858,8 @@ actor StatePoller {
     private static let failureThreshold = 3
     private static let markerPollInterval = 5
     private var consecutiveWindowMisses = 0
+    /// True while the loop is parked because Logic is not running (log-only; see `pollLoop`).
+    private var pollerIdle = false
     private var consecutivePollMisses = 0
     private var markerPollTick = 4
     /// Sections a yielded cycle wrote and has not yet published (`yieldCycle`).
